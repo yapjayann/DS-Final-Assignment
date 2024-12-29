@@ -1,6 +1,37 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.Menu?>
+<?import javafx.scene.control.MenuBar?>
+<?import javafx.scene.control.MenuItem?>
+<?import javafx.scene.control.TableColumn?>
+<?import javafx.scene.control.TableView?>
+<?import javafx.scene.control.TextField?>
 <?import javafx.scene.layout.AnchorPane?>
 
+<AnchorPane maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity" prefHeight="600.0" prefWidth="800.0" style="-fx-background-color: #191414;" xmlns="http://javafx.com/javafx/19" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controllers.MainPageController">
+    <children>
+        <!-- Menu Bar -->
+        <AnchorPane layoutX="0.0" layoutY="0.0" prefHeight="40.0" prefWidth="1000.0" style="-fx-background-color: #282828;">
+            <children>
+                <Button layoutX="10.0" layoutY="5.0" mnemonicParsing="false" style="-fx-background-color: transparent; -fx-text-fill: white; -fx-font-size: 14;" text="Browse" />
+                <Button layoutX="80.0" layoutY="5.0" mnemonicParsing="false" onAction="#handleGoToPlaylist" style="-fx-background-color: transparent; -fx-text-fill: white; -fx-font-size: 14;" text="Playlist" />
+            </children>
+        </AnchorPane>
 
-<AnchorPane maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity" prefHeight="400.0" prefWidth="600.0" xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1" />
+        <ComboBox fx:id="genreFilter" layoutX="14.0" layoutY="50.0" prefWidth="150.0" promptText="Select Genre" style="-fx-background-color: #282828;" />
+        <TextField fx:id="searchField" layoutX="176.0" layoutY="50.0" prefHeight="25.0" prefWidth="200.0" promptText="Search songs..." style="-fx-background-color: #282828; -fx-text-fill: white;" />
+        <TableView fx:id="songTable" layoutX="14.0" layoutY="86.0" prefHeight="450.0" prefWidth="772.0" style="-fx-background-color: #282828; -fx-text-fill: white;">
+            <columns>
+                <TableColumn fx:id="titleColumn" prefWidth="250.0" text="Title" />
+                <TableColumn fx:id="artistColumn" prefWidth="200.0" text="Artist" />
+                <TableColumn fx:id="genreColumn" prefWidth="150.0" text="Genre" />
+                <TableColumn fx:id="durationColumn" prefWidth="150.0" text="Duration" />
+            </columns>
+        </TableView>
+        <Button layoutX="14.0" layoutY="546.0" mnemonicParsing="false" onAction="#handleAddToPlaylist" style="-fx-background-color: #1DB954;" text="Add to Playlist" textFill="WHITE" />
+        <Button layoutX="696.0" layoutY="546.0" mnemonicParsing="false" onAction="#handleGoToPlaylist" style="-fx-background-color: #1DB954;" text="Go to Playlist" textFill="WHITE" />
+    </children>
+</AnchorPane>
