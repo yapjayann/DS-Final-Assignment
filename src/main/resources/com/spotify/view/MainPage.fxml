@@ -1,6 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ListView?>
+<?import javafx.scene.control.TextField?>
 <?import javafx.scene.layout.AnchorPane?>
 
 
-<AnchorPane maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity" prefHeight="400.0" prefWidth="600.0" xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1" />
+<AnchorPane maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity" prefHeight="700.0" prefWidth="800.0" xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
+   <children>
+      <TextField layoutX="105.0" layoutY="92.0" />
+      <Button layoutX="154.0" layoutY="134.0" mnemonicParsing="false" text="Log In" />
+      <ListView layoutX="80.0" layoutY="250.0" prefHeight="308.0" prefWidth="200.0" />
+      <Button layoutX="187.0" layoutY="569.0" mnemonicParsing="false" text="Add to Playlist" />
+      <ListView layoutX="515.0" layoutY="250.0" prefHeight="308.0" prefWidth="200.0" />
+      <TextField layoutX="79.0" layoutY="224.0" />
+      <Button layoutX="229.0" layoutY="224.0" mnemonicParsing="false" text="Search" />
+      <Button layoutX="584.0" layoutY="569.0" mnemonicParsing="false" text="Play/Pause" />
+      <Button layoutX="665.0" layoutY="569.0" mnemonicParsing="false" text="Next&gt;" />
+      <Button layoutX="515.0" layoutY="569.0" mnemonicParsing="false" text="&lt;Previous" />
+      <Label layoutX="515.0" layoutY="228.0" text="Playlist:" />
+      <Button layoutX="593.0" layoutY="610.0" mnemonicParsing="false" text="Remove from Playlist" />
+      <ListView layoutX="521.0" layoutY="56.0" prefHeight="121.0" prefWidth="200.0" />
+      <Label layoutX="521.0" layoutY="33.0" text="Playlist Contributors:" />
+   </children>
+</AnchorPane>
