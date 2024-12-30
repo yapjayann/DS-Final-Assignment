@@ -67,11 +67,12 @@
             </children>
         </AnchorPane>
 
-        <!-- Bottom Buttons for Play and Remove Song -->
+        <!-- Bottom Buttons for Play, Add to Queue, and Remove Song -->
         <AnchorPane layoutX="250.0" layoutY="500.0" prefHeight="100.0" prefWidth="550.0" style="-fx-background-color: #282828;">
             <children>
-                <Button fx:id="playSongButton" layoutX="100.0" layoutY="30.0" mnemonicParsing="false" onAction="#handlePlaySong" style="-fx-background-color: #1DB954;" text="Play Song" textFill="WHITE" />
-                <Button fx:id="removeSongButton" layoutX="300.0" layoutY="30.0" mnemonicParsing="false" onAction="#handleRemoveSong" style="-fx-background-color: #D32F2F;" text="Remove Song" textFill="WHITE" />
+                <Button fx:id="playSongButton" layoutX="50.0" layoutY="30.0" mnemonicParsing="false" onAction="#handlePlaySong" style="-fx-background-color: #1DB954;" text="Play Song" textFill="WHITE" />
+                <Button fx:id="addToQueueButton" layoutX="200.0" layoutY="30.0" mnemonicParsing="false" onAction="#handleAddToQueue" style="-fx-background-color: #1DB954;" text="Add to Queue" textFill="WHITE" />
+                <Button fx:id="removeSongButton" layoutX="350.0" layoutY="30.0" mnemonicParsing="false" onAction="#handleRemoveSong" style="-fx-background-color: #D32F2F;" text="Remove Song" textFill="WHITE" />
             </children>
         </AnchorPane>
 

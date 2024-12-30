@@ -22,6 +22,11 @@ object Messages {
   case object Next                // Skip to the next song
   case object Previous            // Go to the previous song
 
+  // Queue Management Messages
+  case class AddToQueue(song: Song) // Add a song to the playback queue
+  case object GetQueue              // Retrieve the current playback queue
+  case object SkipToNext            // Skip to the next song in the queue
+
   // User Management Messages
   case class LoginUser(username: String) // User login message
   case class LogoutUser(username: String) // User logout message

@@ -9,6 +9,8 @@ import javafx.collections.{FXCollections, ObservableList}
 import spotify.models.{Playlist, User, Song}
 import spotify.MainApp
 import javafx.scene.media.{Media, MediaPlayer}
+import java.nio.file.{Files, Paths}
+import java.io.{ObjectOutputStream, ObjectInputStream}
 
 class PlaylistController {
 
@@ -67,7 +69,7 @@ class PlaylistController {
     println(s"Current user: ${user.username}, Current playlist: ${playlist.name}")
 
     // Populate the playlist table
-    populatePlaylistTable()
+    populatePlaylistTable()  // Ensure the table is updated with the current playlist
   }
 
   // Populate the playlist table with songs
@@ -102,12 +104,43 @@ class PlaylistController {
     // Implement previous song functionality here
   }
 
-  // Handle the next song button
   @FXML
   private def handleNext(): Unit = {
-    println("Next button clicked")
-    // Implement next song functionality here
+    // Check if there's a song in the queue
+    if (queueList.getItems.size() > 0) {
+      val nextSongTitle = queueList.getItems.get(0)  // Get the title of the next song in the queue
+      val nextSong = currentPlaylist.songs.find(_.title == nextSongTitle).getOrElse(null)
+
+      if (nextSong != null) {
+        // If the song is found in the playlist, stop the current song
+        if (mediaPlayer != null) {
+          mediaPlayer.stop()
+          println(s"Stopping the current song: ${currentSongLabel.getText}")
+        }
+
+        // Set the MediaPlayer to the next song and play it
+        setMediaPlayer(nextSong)
+
+        // Update UI with the new song details
+        currentSongLabel.setText(nextSong.title)
+        currentArtistLabel.setText(nextSong.artist)
+
+        // Play the new song
+        mediaPlayer.play()
+
+        // Remove the song from the queue after it starts playing
+        queueList.getItems.remove(nextSong.title)
+
+        println(s"Now playing: ${nextSong.title} by ${nextSong.artist}")
+      } else {
+        println("Song not found in the playlist!")
+      }
+    } else {
+      println("No more songs in the queue.")
+    }
   }
+
+
 
   // Handle adding a contributor to the playlist
   @FXML
@@ -124,7 +157,6 @@ class PlaylistController {
   @FXML
   private def handlePlaySong(): Unit = {
     val selectedSong = playlistTable.getSelectionModel.getSelectedItem
-
     if (selectedSong != null) {
       // If there's already a song playing, stop it
       if (mediaPlayer != null) {
@@ -145,25 +177,29 @@ class PlaylistController {
       // Update progress slider max value based on song duration
       progressSlider.setMax(selectedSong.duration.toDouble)
 
+      // Remove the song from the queue after it starts playing
+      queueList.getItems.remove(selectedSong.title)
+
       println(s"Now playing: ${selectedSong.title} by ${selectedSong.artist}")
     } else {
       println("No song selected!")
     }
   }
 
-
   @FXML
   private def handleRemoveSong(): Unit = {
     val selectedSong = playlistTable.getSelectionModel.getSelectedItem
     if (selectedSong != null) {
       currentPlaylist = currentPlaylist.removeSong(selectedSong.id)  // Update the playlist
-      populatePlaylistTable()  // Refresh the playlist table
+      populatePlaylistTable()
       println(s"Removed song: ${selectedSong.title}")
+
+      // Save the updated playlist to persistent storage (file or database)
+      savePlaylistToFile(currentPlaylist)
     } else {
       println("No song selected for removal.")
     }
   }
-
 
   // Handle navigation to the Browse page
   @FXML
@@ -197,7 +233,7 @@ class PlaylistController {
 
   private def setMediaPlayer(song: Song): Unit = {
     if (song != null) {
-      val media = new Media(song.filePath) // Use the correct filePath property from Song
+      val media = new Media(song.filePath)
       mediaPlayer = new MediaPlayer(media)
       mediaPlayer.setVolume(volumeSlider.getValue / 100)
 
@@ -208,9 +244,68 @@ class PlaylistController {
       mediaPlayer.currentTimeProperty.addListener((_, _, newValue) => {
         progressSlider.setValue(newValue.toSeconds)
       })
+
+      // Add event listener for when the song finishes
+      mediaPlayer.setOnEndOfMedia(() => {
+        println("Song finished, playing the next one.")
+        handleNext() // Automatically play the next song when the current one finishes
+      })
     } else {
       println("No song selected or mediaPlayer not initialized.")
     }
   }
 
+  // Handle playing the next song from the queue
+  private def handleNextSongFromQueue(): Unit = {
+    if (queueList.getItems.size() > 0) {
+      // Get the next song from the queue
+      val nextSongTitle = queueList.getItems.get(0)
+      val nextSong = currentPlaylist.songs.find(_.title == nextSongTitle)
+
+      nextSong match {
+        case Some(song) =>
+          // Play the next song
+          setMediaPlayer(song)
+          mediaPlayer.play()
+          println(s"Playing next song: ${song.title}")
+
+          // Remove the song from the queue after it starts playing
+          queueList.getItems.remove(0)
+        case None =>
+          println("No song found in the queue to play.")
+      }
+    } else {
+      println("Queue is empty, no next song to play.")
+    }
+  }
+
+  // Save the updated playlist to persistent storage (file or database)
+  private def savePlaylistToFile(playlist: Playlist): Unit = {
+    val filePath = "playlist.dat"
+    val outStream = new ObjectOutputStream(Files.newOutputStream(Paths.get(filePath)))
+    try {
+      outStream.writeObject(playlist)
+    } finally {
+      outStream.close()
+    }
+  }
+
+  // Handle adding a song to the queue
+  @FXML
+  private def handleAddToQueue(): Unit = {
+    val selectedSong = playlistTable.getSelectionModel.getSelectedItem
+    if (selectedSong != null) {
+      addSongToQueue(selectedSong)
+      println(s"Added song to queue: ${selectedSong.title}")
+    } else {
+      println("No song selected to add to the queue.")
+    }
+  }
+
+  // Helper method to add a song to the queue
+  private def addSongToQueue(song: Song): Unit = {
+    if (song != null) {
+      queueList.getItems.add(song.title)
+    }
+  }
 }

@@ -9,7 +9,7 @@ case class Song(
                  genre: String,
                  duration: Int,
                  filePath: String,
-                 contributor: Option[String] = None // Tracks who added the song
+                 contributor: Option[String] = None
                ) {
   // JavaFX properties for TableView binding
   def titleProperty(): StringProperty = new SimpleStringProperty(title)
