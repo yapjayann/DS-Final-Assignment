@@ -8,7 +8,7 @@ import spotify.models.{Song, User, Playlist}
 import akka.actor.{ActorRef, ActorSystem}
 import akka.pattern.ask
 import akka.util.Timeout
-import actors.{Messages, SongDatabaseActor, PlaylistActor}
+import spotify.actors.{Messages, SongDatabaseActor, PlaylistActor}
 import spotify.MainApp
 
 import scala.concurrent.Future
@@ -75,21 +75,32 @@ class MainPageController {
 
     // Initialize playlist for this user
     playlistActor.foreach { actor =>
-      // First add the user as a contributor
-      (actor ? Messages.AddContributor(user.username)).mapTo[Boolean].map { success =>
+      val playlistId = currentPlaylist.id // Assuming `currentPlaylist` is already set
+
+      // Use ask pattern to handle `replyTo` automatically
+      implicit val timeout: Timeout = Timeout(5.seconds)
+      val addContributorFuture: Future[Boolean] = actor.ask(replyTo =>
+        Messages.AddContributor(user.username, playlistId, replyTo)
+      ).mapTo[Boolean]
+
+      addContributorFuture.map { success =>
         if (success) {
-          println(s"Added ${user.username} as contributor")
-          // Then get the playlist
-          (actor ? Messages.GetPlaylist).mapTo[Playlist].map { playlist =>
+          println(s"Added ${user.username} as contributor to playlist $playlistId")
+          // Retrieve the playlist
+          actor.ask(replyTo => Messages.GetPlaylist(replyTo)).mapTo[Playlist].map { playlist =>
             setCurrentPlaylist(playlist)
             println(s"Retrieved playlist for user: ${playlist.name}")
           }
         } else {
-          println(s"Failed to add ${user.username} as contributor")
+          println(s"Failed to add ${user.username} as contributor to playlist $playlistId")
         }
+      }.recover {
+        case ex: Exception =>
+          println(s"Error adding contributor: ${ex.getMessage}")
       }
     }
   }
+
 
   def setCurrentPlaylist(playlist: Playlist): Unit = {
     if (playlist == null) {
@@ -145,19 +156,20 @@ class MainPageController {
     println(s"Adding song to playlist: ${selectedSong.title}")
     playlistActor match {
       case Some(actor) =>
-        (actor ? Messages.AddSongToPlaylist(currentUser.username, selectedSong)).mapTo[Boolean].map { success =>
+        val playlistId = currentPlaylist.id // Assuming `currentPlaylist` is already set
+        (actor ? Messages.AddSongToPlaylist(currentUser.username, selectedSong, playlistId, actor)).mapTo[Boolean].map { success =>
           if (success) {
-            println(s"Song '${selectedSong.title}' added to playlist successfully.")
-            // Add song to playlist table after it's added
+            println(s"Song '${selectedSong.title}' added to playlist $playlistId successfully.")
             updatePlaylistTable()
           } else {
-            println(s"Failed to add song '${selectedSong.title}' to playlist.")
+            println(s"Failed to add song '${selectedSong.title}' to playlist $playlistId.")
           }
         }
       case None =>
         println("PlaylistActor is not initialized!")
     }
   }
+
 
   // Update the playlist table after adding a song
   private def updatePlaylistTable(): Unit = {

@@ -1,4 +1,4 @@
-package actors
+package spotify.actors
 
 import akka.actor.{Actor, ActorRef}
 

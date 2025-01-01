@@ -1,7 +1,7 @@
-package actors
+package spotify.actors
 
 import akka.actor.{Actor, Props}
-import actors.Messages._
+import spotify.actors.Messages._
 import spotify.models.Song
 
 class SongDatabaseActor extends Actor {
@@ -28,7 +28,7 @@ class SongDatabaseActor extends Actor {
       )
       sender() ! results
 
-    case GetSongById(id) =>
+    case GetSongById(id, replyTo) =>
       sender() ! songs.find(_.id == id)
   }
 }

@@ -1,46 +1,47 @@
-package actors
+package spotify.actors
 
-import akka.actor.{Actor, Props}
-import actors.Messages._
+import akka.actor.{Actor, Props, ActorRef}
+import spotify.models.User
+import spotify.actors.Messages._
 
 class UserManagerActor extends Actor {
-  private var users: Set[String] = Set.empty // Set to track registered users
+  private var users: Map[String, User] = Map.empty
 
   override def receive: Receive = {
-    case LoginUser(username) =>
-      if (username.isEmpty) {
-        println("LoginUser failed: Username cannot be empty.")
-        sender() ! false
-      } else if (users.contains(username)) {
-        println(s"LoginUser failed: Username '$username' already exists.")
-        sender() ! false
+    case LoginUser(user, replyTo) =>
+      if (users.contains(user.username)) {
+        replyTo ! false
+        context.system.log.info(s"Login failed for user: ${user.username} (already exists).")
       } else {
-        users += username
-        println(s"LoginUser successful: Username '$username' registered.")
-        sender() ! true
+        users += (user.username -> user)
+        replyTo ! true
+        context.system.log.info(s"User '${user.username}' logged in successfully.")
       }
 
-    case LogoutUser(username) =>
+    case LogoutUser(username, replyTo) =>
       if (users.contains(username)) {
         users -= username
-        println(s"LogoutUser successful: Username '$username' removed.")
-        sender() ! true
+        replyTo ! true
+        context.system.log.info(s"User '$username' logged out successfully.")
       } else {
-        println(s"LogoutUser failed: Username '$username' not found.")
-        sender() ! false
+        replyTo ! false
+        context.system.log.info(s"Logout failed for user: $username (not found).")
       }
 
-    case AddContributor(username) =>
-      val exists = users.contains(username)
-      if (exists) {
-        println(s"AddContributor successful: Username '$username' is a registered user.")
+    case AddContributor(username, playlistId, replyTo) =>
+      if (users.contains(username)) {
+        // Log contributor addition with playlistId context
+        context.system.log.info(s"Adding contributor '$username' to playlist '$playlistId'.")
+        replyTo ! true
+        context.system.log.info(s"Contributor '$username' added successfully to playlist '$playlistId'.")
       } else {
-        println(s"AddContributor failed: Username '$username' is not a registered user.")
+        replyTo ! false
+        context.system.log.info(s"Failed to add contributor: '$username' (user not found).")
       }
-      sender() ! exists
 
     case _ =>
-      println("Received unknown message in UserManagerActor.")
+      context.system.log.warning("Received an unknown message.")
+      sender() ! "Unknown message type."
   }
 }
 

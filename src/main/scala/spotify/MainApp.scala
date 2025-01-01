@@ -5,18 +5,31 @@ import javafx.fxml.FXMLLoader
 import javafx.scene.Scene
 import javafx.scene.layout.AnchorPane
 import javafx.stage.Stage
-import akka.actor.ActorSystem
+import akka.actor.{ActorSelection, ActorSystem}
+import com.typesafe.config.ConfigFactory
 import spotify.models.{Playlist, User}
 import controllers.{LoginController, MainPageController, PlaylistController}
 
+import scala.concurrent.ExecutionContext
+
 object MainApp {
-  val actorSystem: ActorSystem = ActorSystem("SpotifySystem")
+  // Load client-specific Akka configuration
+  val config = ConfigFactory.load("client.conf")
+  val actorSystem: ActorSystem = ActorSystem("SpotifySystem", config)
+
+  // Remote actor references
+  val playlistActor: ActorSelection = actorSystem.actorSelection("akka://SpotifySystem@<server-ip>:<port>/user/PlaylistActor")
+  val userManagerActor: ActorSelection = actorSystem.actorSelection("akka://SpotifySystem@<server-ip>:<port>/user/UserManagerActor")
 }
 
 class MainApp extends Application {
   private var primaryStage: Stage = _
 
   override def start(primaryStage: Stage): Unit = {
+    // Start the server for development/testing
+    println("Starting Spotify Server...")
+    ServerApp.start()
+
     this.primaryStage = primaryStage
     this.primaryStage.setTitle("Spotify Clone")
 
@@ -59,7 +72,7 @@ class MainApp extends Application {
       val controller = loader.getController[MainPageController]
       if (controller == null) throw new NullPointerException("MainPageController is null!")
       controller.setCurrentUser(user)
-      controller.setMainApp(this)  // Set MainApp reference to MainPageController
+      controller.setMainApp(this) // Set MainApp reference to MainPageController
 
       primaryStage.setScene(scene)
       primaryStage.show()
@@ -97,8 +110,14 @@ class MainApp extends Application {
   override def stop(): Unit = {
     try {
       println("Shutting down application...")
+
+      // Stop the server
+      ServerApp.stop()
+
+      // Terminate the actor system
+      implicit val ec: ExecutionContext = MainApp.actorSystem.dispatcher
       MainApp.actorSystem.terminate()
-      println("Akka actor system terminated successfully.")
+      MainApp.actorSystem.whenTerminated.foreach(_ => println("Akka actor system terminated successfully."))
     } catch {
       case e: Exception =>
         println("Error during application shutdown:")
@@ -113,3 +132,4 @@ object SpotifyApp {
     Application.launch(classOf[MainApp], args: _*)
   }
 }
+
