@@ -1,47 +1,38 @@
 package spotify.actors
 
-import akka.actor.{Actor, Props, ActorRef}
+import akka.actor.{Actor, Props}
 import spotify.models.User
 import spotify.actors.Messages._
 
 class UserManagerActor extends Actor {
-  private var users: Map[String, User] = Map.empty
+  private var users: Map[String, User] = Map.empty // Registered users
 
   override def receive: Receive = {
-    case LoginUser(user, replyTo) =>
+    case LoginUser(user, _) =>
+      context.system.log.info(s"Login attempt for user: ${user.username}")
+
       if (users.contains(user.username)) {
-        replyTo ! false
         context.system.log.info(s"Login failed for user: ${user.username} (already exists).")
+        sender() ! false // Reply directly to the original sender
       } else {
         users += (user.username -> user)
-        replyTo ! true
         context.system.log.info(s"User '${user.username}' logged in successfully.")
+        sender() ! true // Reply directly to the original sender
       }
 
-    case LogoutUser(username, replyTo) =>
+    case LogoutUser(username, _) =>
+      context.system.log.info(s"Logout attempt for user: $username")
       if (users.contains(username)) {
         users -= username
-        replyTo ! true
+        sender() ! true
         context.system.log.info(s"User '$username' logged out successfully.")
       } else {
-        replyTo ! false
+        sender() ! false
         context.system.log.info(s"Logout failed for user: $username (not found).")
-      }
-
-    case AddContributor(username, playlistId, replyTo) =>
-      if (users.contains(username)) {
-        // Log contributor addition with playlistId context
-        context.system.log.info(s"Adding contributor '$username' to playlist '$playlistId'.")
-        replyTo ! true
-        context.system.log.info(s"Contributor '$username' added successfully to playlist '$playlistId'.")
-      } else {
-        replyTo ! false
-        context.system.log.info(s"Failed to add contributor: '$username' (user not found).")
       }
 
     case _ =>
       context.system.log.warning("Received an unknown message.")
-      sender() ! "Unknown message type."
   }
 }
 

@@ -25,7 +25,7 @@
             <children>
                 <Label layoutX="14.0" layoutY="14.0" text="Now Playing" textFill="WHITE">
                     <font>
-                        <javafx.scene.text.Font size="18.0" />
+                        <Font size="18.0" />
                     </font>
                 </Label>
                 <Label fx:id="currentSongLabel" layoutX="14.0" layoutY="44.0" textFill="#1db954" />
@@ -53,13 +53,13 @@
             <children>
                 <Label layoutX="14.0" layoutY="14.0" text="Queue" textFill="WHITE">
                     <font>
-                        <javafx.scene.text.Font size="18.0" />
+                        <Font size="18.0" />
                     </font>
                 </Label>
                 <ListView fx:id="queueList" layoutX="14.0" layoutY="44.0" prefHeight="400.0" prefWidth="172.0" style="-fx-background-color: #383838;" />
                 <Label layoutX="14.0" layoutY="460.0" text="Add Contributor:" textFill="WHITE">
                     <font>
-                        <javafx.scene.text.Font size="14.0" />
+                        <Font size="14.0" />
                     </font>
                 </Label>
                 <TextField fx:id="contributorField" layoutX="14.0" layoutY="490.0" prefHeight="30.0" prefWidth="172.0" promptText="Enter Username" style="-fx-background-color: #383838; -fx-text-fill: white;" />
@@ -75,6 +75,5 @@
                 <Button fx:id="removeSongButton" layoutX="350.0" layoutY="30.0" mnemonicParsing="false" onAction="#handleRemoveSong" style="-fx-background-color: #D32F2F;" text="Remove Song" textFill="WHITE" />
             </children>
         </AnchorPane>
-
     </children>
 </AnchorPane>
