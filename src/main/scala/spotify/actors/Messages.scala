@@ -1,33 +1,27 @@
-package actors
+package spotify.actors
 
-import spotify.models.Song
+import akka.actor.typed.ActorRef
+import spotify.models.{Playlist, Song, User}
 
 object Messages {
+  // General trait for all commands
+  sealed trait Command
+
   // Song Database Messages
-  case class SearchSongs(query: String) // Search songs by query
-  case class SearchSongsWithGenre(query: String, genre: String) // Search songs with genre filter
-  case class GetSongById(id: String) // Get a song by its ID
-  case object GetGenres // Fetch available genres
+  final case class SearchSongs(query: String, replyTo: ActorRef[List[Song]]) extends Command // Added replyTo
+  final case class SearchSongsWithGenre(query: String, genre: String, replyTo: ActorRef[List[Song]]) extends Command // Added replyTo
+  final case class GetSongById(id: String, replyTo: ActorRef[Option[Song]]) extends Command
+  final case class GetGenres(replyTo: ActorRef[List[String]]) extends Command // Added replyTo
 
   // Playlist Messages
-  case class AddSongToPlaylist(user: String, song: Song) // Add a song to a user's playlist
-  case class RemoveSongFromPlaylist(user: String, songId: String) // Remove song from a playlist
-  case class AddContributor(username: String) // Add a contributor to the playlist
-  case object GetPlaylist // Get the current playlist of the user
-
-  // Playback Messages
-  case class PlaySong(song: Song)  // Play a specific song
-  case object StopSong            // Stop the currently playing song
-  case object Pause               // Pause the playback
-  case object Next                // Skip to the next song
-  case object Previous            // Go to the previous song
-
-  // Queue Management Messages
-  case class AddToQueue(song: Song) // Add a song to the playback queue
-  case object GetQueue              // Retrieve the current playback queue
-  case object SkipToNext            // Skip to the next song in the queue
+  final case class AddSongToPlaylist(user: String, song: Song, playlistId: String, replyTo: ActorRef[Boolean]) extends Command
+  final case class RemoveSongFromPlaylist(user: String, songId: String, playlistId: String, replyTo: ActorRef[Boolean]) extends Command // Added playlistId
+  final case class AddContributor(username: String, playlistId: String, replyTo: ActorRef[Boolean]) extends Command
+  final case class GetPlaylist(username: String, replyTo: ActorRef[Playlist]) extends Command
+  final case class PlaylistUpdated(playlist: Playlist) extends Command
 
   // User Management Messages
-  case class LoginUser(username: String) // User login message
-  case class LogoutUser(username: String) // User logout message
+  final case class LoginUser(user: User, replyTo: ActorRef[Boolean]) extends Command
+  final case class LogoutUser(username: String, replyTo: ActorRef[Boolean]) extends Command
+  final case class GetAllUsers(replyTo: ActorRef[List[User]]) extends Command
 }

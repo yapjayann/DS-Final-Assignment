@@ -1,103 +1,115 @@
-package controllers
+package spotify.controllers
 
 import spotify.MainApp
 import javafx.fxml.FXML
 import javafx.scene.control.{Button, Label, ProgressIndicator, TextField}
-import akka.actor.ActorSystem
-import akka.pattern.ask
+import akka.actor.typed.ActorRef  // Use Akka Typed's ActorRef
+import akka.actor.typed.scaladsl.AskPattern._
 import akka.util.Timeout
-import javafx.application.Platform
+import spotify.actors.Messages
+import spotify.models.User
+
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
-import actors.Messages
-import spotify.models.User
+import javafx.application.Platform
 
 class LoginController {
 
-  // FXML references
   @FXML private var usernameField: TextField = _
   @FXML private var errorLabel: Label = _
   @FXML private var loadingIndicator: ProgressIndicator = _
   @FXML private var loginButton: Button = _
 
-  // Akka Actor System
-  private val system: ActorSystem = MainApp.actorSystem
-  private var userActor = system.actorOf(actors.UserManagerActor.props(), "UserManagerActor")
-
-  // Reference to MainApp for screen transitions
   private var mainApp: MainApp = _
+  private var userManagerActor: ActorRef[Messages.Command] = _
 
-  // Method to set the MainApp instance
+  @FXML
+  def initialize(): Unit = {
+    require(usernameField != null, "usernameField not injected by FXML")
+    require(errorLabel != null, "errorLabel not injected by FXML")
+    require(loadingIndicator != null, "loadingIndicator not injected by FXML")
+    require(loginButton != null, "loginButton not injected by FXML")
+
+    loadingIndicator.setVisible(false)
+    errorLabel.setVisible(false)
+    println("LoginController initialized successfully")
+  }
+
   def setApp(app: MainApp): Unit = {
+    require(app != null, "MainApp cannot be null")
     this.mainApp = app
+    this.userManagerActor = MainApp.userManagerActor  // Use the actor reference from MainApp
     println(s"MainApp reference set in LoginController: $mainApp")
   }
 
-  // Handle login button action
   @FXML
   private def handleLogin(): Unit = {
     val username = Option(usernameField.getText).map(_.trim).getOrElse("")
     println(s"Attempting login for username: $username")
 
     if (username.isEmpty) {
-      errorLabel.setText("Username cannot be empty!")
-      errorLabel.setVisible(true)
+      showError("Username cannot be empty!")
       return
     }
 
-    // Ensure MainApp reference is set
     if (mainApp == null) {
-      println("Error: MainApp reference is null.")
-      errorLabel.setText("Application error! Please restart.")
-      errorLabel.setVisible(true)
+      showError("System error: MainApp not initialized")
       return
     }
 
-    // Ensure userActor is initialized
-    if (userActor == null) {
-      println("Error: userActor is null.")
-      errorLabel.setText("Application error! Please restart.")
-      errorLabel.setVisible(true)
-      return
-    }
+    showLoading(true)
 
-    // Hide error label and show loading indicator
-    errorLabel.setVisible(false)
-    loadingIndicator.setVisible(true)
-
-    // Akka interaction for login
     implicit val timeout: Timeout = Timeout(5.seconds)
-    val loginResult: Future[Boolean] = (userActor ? Messages.LoginUser(username)).mapTo[Boolean]
+    implicit val scheduler = MainApp.actorSystem.scheduler  // Get the scheduler from the actor system
 
-    loginResult.onComplete {
+    // Send the login request to the UserManagerActor
+    val loginRequest: Future[Boolean] = (userManagerActor ? (ref => Messages.LoginUser(User(username), ref)))
+      .mapTo[Boolean]
+
+    loginRequest.onComplete {
       case Success(true) =>
-        // Successfully logged in
-        val user = User(username, playlists = List.empty) // Create a new user instance
         println(s"Login successful for user: $username")
-
-        // Use Platform.runLater to ensure UI update happens on JavaFX thread
-        Platform.runLater(new Runnable {
-          override def run(): Unit = {
-            mainApp.showMainPage(user)
-          }
-        })
+        val user = User(username, playlists = List.empty)
+        updateUIAfterLogin(user)
 
       case Success(false) =>
-        // Login failed
-        println(s"Login failed for user: $username (username already exists).")
-        loadingIndicator.setVisible(false)
-        errorLabel.setText("Login failed! Username already exists.")
-        errorLabel.setVisible(true)
+        println(s"Login failed for user: $username")
+        updateUIAfterFailure("Login failed! Username already exists.")
 
       case Failure(ex) =>
-        // Unexpected error
-        println(s"Error during login process: ${ex.getMessage}")
+        println(s"Error during login: ${ex.getMessage}")
         ex.printStackTrace()
-        loadingIndicator.setVisible(false)
-        errorLabel.setText("An error occurred during login. Please try again.")
-        errorLabel.setVisible(true)
+        updateUIAfterFailure("An error occurred. Please try again.")
+    }
+  }
+
+  private def updateUIAfterLogin(user: User): Unit = {
+    Platform.runLater(() => {
+      showLoading(false)
+      mainApp.showMainPage(user)
+    })
+  }
+
+  private def updateUIAfterFailure(message: String): Unit = {
+    Platform.runLater(() => {
+      showLoading(false)
+      showError(message)
+    })
+  }
+
+  private def showError(message: String): Unit = {
+    if (errorLabel != null) {
+      errorLabel.setText(message)
+      errorLabel.setVisible(true)
+    }
+  }
+
+  private def showLoading(isLoading: Boolean): Unit = {
+    if (loadingIndicator != null && loginButton != null) {
+      loadingIndicator.setVisible(isLoading)
+      loginButton.setDisable(isLoading)
     }
   }
 }

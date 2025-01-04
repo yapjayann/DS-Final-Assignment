@@ -1,23 +1,23 @@
-package controllers
+package spotify.controllers
 
+import akka.actor.typed.{ActorRef, ActorSystem}
+import akka.actor.typed.scaladsl.AskPattern._
+import akka.actor.typed.scaladsl.Behaviors
+import akka.util.Timeout
 import javafx.application.Platform
 import javafx.fxml.FXML
 import javafx.scene.control._
 import javafx.collections.{FXCollections, ObservableList}
-import spotify.models.{Song, User, Playlist}
-import akka.actor.{ActorRef, ActorSystem}
-import akka.pattern.ask
-import akka.util.Timeout
-import actors.{Messages, SongDatabaseActor, PlaylistActor}
+import spotify.models.{Playlist, Song, User}
+import spotify.actors.Messages
 import spotify.MainApp
 
-import scala.concurrent.Future
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
+import scala.util.{Failure, Success}
 
 class MainPageController {
 
-  // FXML references
   @FXML private var genreFilter: ComboBox[String] = _
   @FXML private var searchField: TextField = _
   @FXML private var songTable: TableView[Song] = _
@@ -28,74 +28,71 @@ class MainPageController {
   @FXML private var addToPlaylistButton: Button = _
   @FXML private var goToPlaylistButton: Button = _
 
-  // Akka Actor System
-  private val system: ActorSystem = ActorSystem("SpotifySystem")
-  private var songDatabaseActor: Option[ActorRef] = None
-  private var playlistActor: Option[ActorRef] = None
+  private val system: ActorSystem[Messages.Command] = MainApp.actorSystem
+  private val playlistActor: ActorRef[Messages.Command] = MainApp.playlistActor
+  private val songDatabaseActor: ActorRef[Messages.Command] = MainApp.songDatabaseActor
 
-  // Timeout for Akka messaging
-  implicit val timeout: Timeout = Timeout(5.seconds)
-
-  // Current user and playlist
+  implicit val timeout: Timeout = 5.seconds
   private var currentUser: User = _
   private var currentPlaylist: Playlist = _
-
-  // Observable list for songs in the table
   private val songs: ObservableList[Song] = FXCollections.observableArrayList()
-
-  // Reference to MainApp for screen navigation
   private var mainApp: MainApp = _
 
   def initialize(): Unit = {
     println("Initializing MainPageController...")
 
-    // Initialize actors
-    songDatabaseActor = Some(system.actorOf(SongDatabaseActor.props(), "SongDatabaseActor"))
-    playlistActor = Some(system.actorOf(PlaylistActor.props(), "PlaylistActor"))
-
-    // Configure table columns
     titleColumn.setCellValueFactory(cellData => cellData.getValue.titleProperty())
     artistColumn.setCellValueFactory(cellData => cellData.getValue.artistProperty())
     genreColumn.setCellValueFactory(cellData => cellData.getValue.genreProperty())
     durationColumn.setCellValueFactory(cellData => cellData.getValue.durationProperty())
 
-    // Set the table's items
     songTable.setItems(songs)
-
-    // Load songs into the table
     loadSongs()
+    loadGenres()
+  }
+
+  private def loadGenres(): Unit = {
+    val replyActor = system.systemActorOf(
+      Behaviors.receiveMessage[List[String]] { genres =>
+        Platform.runLater(() => {
+          genreFilter.getItems.clear()
+          genreFilter.getItems.addAll(genres: _*)
+        })
+        Behaviors.stopped
+      },
+      "GenreReplyActor"
+    )
+
+    songDatabaseActor ! Messages.GetGenres(replyActor)
   }
 
   def setCurrentUser(user: User): Unit = {
     if (user == null) {
-      throw new IllegalArgumentException("User cannot be null in setCurrentUser")
+      println("Error: User is null!")
+      return
     }
-    this.currentUser = user
+    currentUser = user
     println(s"Current user set to: ${user.username}")
+    fetchPlaylistForUser()
+  }
 
-    // Initialize playlist for this user
-    playlistActor.foreach { actor =>
-      // First add the user as a contributor
-      (actor ? Messages.AddContributor(user.username)).mapTo[Boolean].map { success =>
-        if (success) {
-          println(s"Added ${user.username} as contributor")
-          // Then get the playlist
-          (actor ? Messages.GetPlaylist).mapTo[Playlist].map { playlist =>
-            setCurrentPlaylist(playlist)
-            println(s"Retrieved playlist for user: ${playlist.name}")
-          }
-        } else {
-          println(s"Failed to add ${user.username} as contributor")
-        }
-      }
-    }
+  private def fetchPlaylistForUser(): Unit = {
+    println(s"Fetching playlist for user: ${currentUser.username}")
+    playlistActor ! Messages.GetPlaylist(currentUser.username, system.systemActorOf(
+      Behaviors.receiveMessage[Playlist] { playlist =>
+        Platform.runLater(() => setCurrentPlaylist(playlist))
+        Behaviors.stopped
+      },
+      "PlaylistReplyActor"
+    ))
   }
 
   def setCurrentPlaylist(playlist: Playlist): Unit = {
     if (playlist == null) {
-      throw new IllegalArgumentException("Playlist cannot be null in setCurrentPlaylist")
+      println("Error: Playlist is null!")
+      return
     }
-    this.currentPlaylist = playlist
+    currentPlaylist = playlist
     println(s"Current playlist set to: ${playlist.name}")
   }
 
@@ -104,38 +101,56 @@ class MainPageController {
   }
 
   private def loadSongs(): Unit = {
-    println("Loading songs...")
+    println("Loading songs from SongDatabaseActor...")
 
-    songDatabaseActor match {
-      case Some(actor) =>
-        (actor ? Messages.SearchSongs("")).mapTo[List[Song]].map { songsList =>
+    val replyActor = system.systemActorOf(
+      Behaviors.receiveMessage[List[Song]] { songList =>
+        Platform.runLater(() => {
           songs.clear()
-          songs.addAll(songsList: _*)
-        }
-      case None =>
-        println("SongDatabaseActor is not initialized!")
-    }
+          songs.addAll(songList: _*)
+          println(s"Loaded ${songList.size} songs into the table.")
+        })
+        Behaviors.stopped
+      },
+      "SongLoadReplyActor"
+    )
+
+    songDatabaseActor ! Messages.SearchSongs("", replyActor)
   }
 
   @FXML
   private def handleSearch(): Unit = {
     val query = searchField.getText.trim
-    val genre = genreFilter.getValue
+    val genre = Option(genreFilter.getValue)
+    println(s"Searching for songs with query: '$query' and genre: $genre")
 
-    println(s"Searching for songs with query: '$query' and genre: '$genre'")
-    songDatabaseActor match {
-      case Some(actor) =>
-        (actor ? Messages.SearchSongsWithGenre(query, genre)).mapTo[List[Song]].map { searchResults =>
+    val replyActor = system.systemActorOf(
+      Behaviors.receiveMessage[List[Song]] { searchResults =>
+        Platform.runLater(() => {
           songs.clear()
           songs.addAll(searchResults: _*)
-        }
-      case None =>
-        println("SongDatabaseActor is not initialized!")
+          println(s"Search returned ${searchResults.size} songs.")
+        })
+        Behaviors.stopped
+      },
+      "SearchReplyActor"
+    )
+
+    genre match {
+      case Some(g) if g.nonEmpty =>
+        songDatabaseActor ! Messages.SearchSongsWithGenre(query, g, replyActor)
+      case _ =>
+        songDatabaseActor ! Messages.SearchSongs(query, replyActor)
     }
   }
 
   @FXML
   private def handleAddToPlaylist(): Unit = {
+    if (currentUser == null || currentPlaylist == null) {
+      println("Error: User or playlist is not set!")
+      return
+    }
+
     val selectedSong = songTable.getSelectionModel.getSelectedItem
     if (selectedSong == null) {
       println("No song selected to add to playlist.")
@@ -143,48 +158,42 @@ class MainPageController {
     }
 
     println(s"Adding song to playlist: ${selectedSong.title}")
-    playlistActor match {
-      case Some(actor) =>
-        (actor ? Messages.AddSongToPlaylist(currentUser.username, selectedSong)).mapTo[Boolean].map { success =>
-          if (success) {
-            println(s"Song '${selectedSong.title}' added to playlist successfully.")
-            // Add song to playlist table after it's added
-            updatePlaylistTable()
-          } else {
-            println(s"Failed to add song '${selectedSong.title}' to playlist.")
-          }
-        }
-      case None =>
-        println("PlaylistActor is not initialized!")
-    }
-  }
 
-  // Update the playlist table after adding a song
-  private def updatePlaylistTable(): Unit = {
-    playlistActor.foreach { actor =>
-      (actor ? Messages.GetPlaylist).mapTo[Playlist].map { playlist =>
-        currentPlaylist = playlist
-        // Ensure UI updates are on the JavaFX application thread
-        Platform.runLater(new Runnable {
-          override def run(): Unit = {
-            mainApp.showPlaylistScreen(currentUser, currentPlaylist)
+    val replyActor = system.systemActorOf(
+      Behaviors.receiveMessage[Boolean] { success =>
+        Platform.runLater(() => {
+          if (success) {
+            println("Song added successfully.")
+            fetchPlaylistForUser()
+          } else {
+            println("Failed to add song to playlist.")
+            val alert = new Alert(Alert.AlertType.ERROR)
+            alert.setTitle("Error")
+            alert.setHeaderText("Failed to add song")
+            alert.setContentText("Unable to add song to playlist.")
+            alert.showAndWait()
           }
         })
-      }
-    }
+        Behaviors.stopped
+      },
+      "AddSongReplyActor"
+    )
+
+    playlistActor ! Messages.AddSongToPlaylist(
+      currentUser.username,
+      selectedSong,
+      currentPlaylist.id,
+      replyActor
+    )
   }
 
   @FXML
   private def handleGoToPlaylist(): Unit = {
-    println("Navigating to playlist screen...")
-    if (currentUser == null) {
-      println("Error: Current user is not set!")
+    if (currentUser == null || currentPlaylist == null) {
+      println("Error: User or playlist is not set!")
       return
     }
-    if (currentPlaylist == null) {
-      println("Error: Current playlist is not set!")
-      return
-    }
+    println("Navigating to Playlist Screen...")
     mainApp.showPlaylistScreen(currentUser, currentPlaylist)
   }
 }

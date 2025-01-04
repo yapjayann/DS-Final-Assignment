@@ -1,19 +1,24 @@
-package controllers
+package spotify.controllers
 
-import javafx.fxml.{FXML, FXMLLoader}
-import javafx.scene.Scene
+import akka.actor.typed.{ActorRef, ActorSystem}
+import akka.actor.typed.scaladsl.AskPattern._
+import akka.util.Timeout
+import javafx.fxml.{FXML}
 import javafx.scene.control._
 import javafx.scene.control.cell.PropertyValueFactory
-import javafx.scene.layout.AnchorPane
 import javafx.collections.{FXCollections, ObservableList}
 import spotify.models.{Playlist, User, Song}
+import spotify.actors.Messages
 import spotify.MainApp
 import javafx.scene.media.{Media, MediaPlayer}
+import javafx.application.Platform
+import scala.concurrent.duration._
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.util.{Success, Failure}
 import java.nio.file.{Files, Paths}
 import java.io.{ObjectOutputStream, ObjectInputStream}
 
 class PlaylistController {
-
   // FXML references
   @FXML private var currentSongLabel: Label = _
   @FXML private var currentArtistLabel: Label = _
@@ -30,282 +35,232 @@ class PlaylistController {
   @FXML private var addSongButton: Button = _
   @FXML private var removeSongButton: Button = _
 
-  // Current user and playlist
+  // Current state
   private var currentUser: User = _
   private var currentPlaylist: Playlist = _
   private var mainApp: MainApp = _
-
-  // MediaPlayer instance for song playback
   private var mediaPlayer: MediaPlayer = _
 
-  // Initialize the controller
+  // Actor system references
+  private val system: ActorSystem[Messages.Command] = MainApp.actorSystem
+  private val playlistActor: ActorRef[Messages.Command] = MainApp.playlistActor
+  implicit val timeout: Timeout = Timeout(5.seconds)
+  implicit val scheduler = system.scheduler
+
   def initialize(): Unit = {
-    // Initialize table columns
     titleColumn.setCellValueFactory(new PropertyValueFactory[Song, String]("title"))
     artistColumn.setCellValueFactory(new PropertyValueFactory[Song, String]("artist"))
     durationColumn.setCellValueFactory(new PropertyValueFactory[Song, String]("duration"))
     contributorColumn.setCellValueFactory(new PropertyValueFactory[Song, String]("contributor"))
 
-    // Initialize sliders
-    volumeSlider.setValue(50.0) // Set default volume
+    volumeSlider.setValue(50.0)
     progressSlider.setValue(0.0)
+
+    // Add listeners for media controls
+    volumeSlider.valueProperty.addListener((_, _, newValue) => handleVolumeChange())
+    progressSlider.valueProperty.addListener((_, _, newValue) => handleProgressChange())
+
+    println("PlaylistController initialized")
   }
 
-  // Set the main app reference
   def setMainApp(mainApp: MainApp): Unit = {
     this.mainApp = mainApp
+    println("MainApp reference set in PlaylistController")
   }
 
-  // Set current user for playlist screen
   def setCurrentUser(user: User): Unit = {
-    this.currentUser = user
-    println(s"Current user set to: ${user.username}")
+    if (user != null) {
+      this.currentUser = user
+      println(s"Current user set to: ${user.username}")
+    } else {
+      println("Warning: Attempted to set null user")
+    }
   }
 
-  // Set current user and playlist for the screen
   def setCurrentUserAndPlaylist(user: User, playlist: Playlist): Unit = {
-    this.currentUser = user
-    this.currentPlaylist = playlist
-    println(s"Current user: ${user.username}, Current playlist: ${playlist.name}")
-
-    // Populate the playlist table
-    populatePlaylistTable()  // Ensure the table is updated with the current playlist
+    setCurrentUser(user)
+    if (playlist != null) {
+      this.currentPlaylist = playlist
+      println(s"Current playlist set to: ${playlist.name}")
+      Platform.runLater(() => populatePlaylistTable())
+    } else {
+      println("Warning: Attempted to set null playlist")
+    }
   }
 
-  // Populate the playlist table with songs
   private def populatePlaylistTable(): Unit = {
     if (currentPlaylist != null) {
       val observableList: ObservableList[Song] = FXCollections.observableArrayList()
       observableList.addAll(currentPlaylist.songs: _*)
       playlistTable.setItems(observableList)
+      println(s"Populated playlist table with ${currentPlaylist.songs.size} songs")
     }
   }
 
-  // Handle the play/pause button functionality
   @FXML
   private def handlePlayPause(): Unit = {
-    if (mediaPlayer != null) {
-      if (mediaPlayer.getStatus == MediaPlayer.Status.PLAYING) {
-        mediaPlayer.pause()
-        println("Paused the song.")
+    Option(mediaPlayer).foreach { player =>
+      if (player.getStatus == MediaPlayer.Status.PLAYING) {
+        player.pause()
+        println("Paused playback")
       } else {
-        mediaPlayer.play()
-        println("Playing the song.")
+        player.play()
+        println("Started playback")
       }
-    } else {
-      println("MediaPlayer is not initialized!")
     }
   }
 
-  // Handle the previous song button
   @FXML
   private def handlePrevious(): Unit = {
-    println("Previous button clicked")
-    // Implement previous song functionality here
+    val currentIndex = playlistTable.getSelectionModel.getSelectedIndex
+    if (currentIndex > 0) {
+      playlistTable.getSelectionModel.select(currentIndex - 1)
+      handlePlaySong()
+      println("Playing previous song")
+    } else {
+      println("No previous song available")
+    }
   }
 
   @FXML
   private def handleNext(): Unit = {
-    // Check if there's a song in the queue
-    if (queueList.getItems.size() > 0) {
-      val nextSongTitle = queueList.getItems.get(0)  // Get the title of the next song in the queue
-      val nextSong = currentPlaylist.songs.find(_.title == nextSongTitle).getOrElse(null)
-
-      if (nextSong != null) {
-        // If the song is found in the playlist, stop the current song
-        if (mediaPlayer != null) {
-          mediaPlayer.stop()
-          println(s"Stopping the current song: ${currentSongLabel.getText}")
-        }
-
-        // Set the MediaPlayer to the next song and play it
-        setMediaPlayer(nextSong)
-
-        // Update UI with the new song details
-        currentSongLabel.setText(nextSong.title)
-        currentArtistLabel.setText(nextSong.artist)
-
-        // Play the new song
-        mediaPlayer.play()
-
-        // Remove the song from the queue after it starts playing
-        queueList.getItems.remove(nextSong.title)
-
-        println(s"Now playing: ${nextSong.title} by ${nextSong.artist}")
-      } else {
-        println("Song not found in the playlist!")
-      }
+    val currentIndex = playlistTable.getSelectionModel.getSelectedIndex
+    if (currentIndex >= 0 && currentIndex < playlistTable.getItems.size() - 1) {
+      playlistTable.getSelectionModel.select(currentIndex + 1)
+      handlePlaySong()
+      println("Playing next song")
     } else {
-      println("No more songs in the queue.")
+      println("No next song available")
     }
   }
 
-
-
-  // Handle adding a contributor to the playlist
   @FXML
   private def handleAddContributor(): Unit = {
     val username = contributorField.getText.trim
-    if (username.nonEmpty) {
+    if (username.nonEmpty && currentPlaylist != null) {
       println(s"Adding contributor: $username")
-      // Implement add contributor functionality here
-    } else {
-      println("Username is empty!")
+
+      (playlistActor ? (ref => Messages.AddContributor(username, currentPlaylist.id, ref))).mapTo[Boolean]
+        .onComplete {
+          case Success(true) =>
+            Platform.runLater(() => {
+              contributorField.clear()
+              println(s"Successfully added contributor: $username")
+            })
+          case Success(false) =>
+            println(s"Failed to add contributor: $username")
+          case Failure(ex) =>
+            println(s"Error adding contributor: ${ex.getMessage}")
+        }
     }
   }
 
   @FXML
   private def handlePlaySong(): Unit = {
-    val selectedSong = playlistTable.getSelectionModel.getSelectedItem
-    if (selectedSong != null) {
-      // If there's already a song playing, stop it
-      if (mediaPlayer != null) {
-        mediaPlayer.stop()
-        println(s"Stopping the current song: ${currentSongLabel.getText}")
+    Option(playlistTable.getSelectionModel.getSelectedItem).foreach { selectedSong =>
+      // Stop current playback if any
+      Option(mediaPlayer).foreach(_.stop())
+
+      try {
+        val media = new Media(selectedSong.filePath)
+        mediaPlayer = new MediaPlayer(media)
+        mediaPlayer.setVolume(volumeSlider.getValue / 100)
+
+        // Update UI
+        currentSongLabel.setText(selectedSong.title)
+        currentArtistLabel.setText(selectedSong.artist)
+        progressSlider.setMax(selectedSong.duration.toDouble)
+
+        // Add listeners
+        mediaPlayer.currentTimeProperty.addListener((_, _, newValue) =>
+          Platform.runLater(() => progressSlider.setValue(newValue.toSeconds))
+        )
+
+        mediaPlayer.setOnEndOfMedia(() => {
+          println("Song finished playing")
+          handleNext()
+        })
+
+        mediaPlayer.play()
+        println(s"Now playing: ${selectedSong.title} by ${selectedSong.artist}")
+      } catch {
+        case ex: Exception =>
+          println(s"Error playing song: ${ex.getMessage}")
       }
-
-      // Set the MediaPlayer to the selected song
-      setMediaPlayer(selectedSong)
-
-      // Update UI with song details
-      currentSongLabel.setText(selectedSong.title)
-      currentArtistLabel.setText(selectedSong.artist)
-
-      // Play the new song
-      mediaPlayer.play()
-
-      // Update progress slider max value based on song duration
-      progressSlider.setMax(selectedSong.duration.toDouble)
-
-      // Remove the song from the queue after it starts playing
-      queueList.getItems.remove(selectedSong.title)
-
-      println(s"Now playing: ${selectedSong.title} by ${selectedSong.artist}")
-    } else {
-      println("No song selected!")
     }
   }
 
   @FXML
   private def handleRemoveSong(): Unit = {
-    val selectedSong = playlistTable.getSelectionModel.getSelectedItem
-    if (selectedSong != null) {
-      currentPlaylist = currentPlaylist.removeSong(selectedSong.id)  // Update the playlist
-      populatePlaylistTable()
-      println(s"Removed song: ${selectedSong.title}")
+    if (currentUser == null || currentPlaylist == null) {
+      println("Error: User or playlist not set")
+      return
+    }
 
-      // Save the updated playlist to persistent storage (file or database)
-      savePlaylistToFile(currentPlaylist)
-    } else {
-      println("No song selected for removal.")
+    Option(playlistTable.getSelectionModel.getSelectedItem).foreach { selectedSong =>
+      (playlistActor ? (ref =>
+        Messages.RemoveSongFromPlaylist(currentUser.username, selectedSong.id, currentPlaylist.id, ref)
+        )).mapTo[Boolean].onComplete {
+        case Success(true) =>
+          Platform.runLater(() => {
+            populatePlaylistTable()
+            println(s"Successfully removed song: ${selectedSong.title}")
+          })
+        case Success(false) =>
+          println(s"Failed to remove song: ${selectedSong.title}")
+        case Failure(ex) =>
+          println(s"Error removing song: ${ex.getMessage}")
+      }
     }
   }
 
-  // Handle navigation to the Browse page
   @FXML
   private def handleGoToBrowse(): Unit = {
-    if (mainApp != null) {
-      println("Navigating to MainPage (Browse)...")
-      mainApp.showMainPage(currentUser)
-    } else {
-      println("Error: MainApp reference is not set!")
+    Option(mainApp).foreach { app =>
+      println("Navigating to MainPage (Browse)")
+      app.showMainPage(currentUser)
     }
   }
 
-  // Handle volume change via slider
   @FXML
   private def handleVolumeChange(): Unit = {
-    if (mediaPlayer != null) {
-      mediaPlayer.setVolume(volumeSlider.getValue / 100)
-      println(s"Volume set to: ${volumeSlider.getValue}%")
+    Option(mediaPlayer).foreach { player =>
+      val volume = volumeSlider.getValue / 100
+      player.setVolume(volume)
+      println(s"Volume set to: ${volume * 100}%")
     }
   }
 
-  // Handle progress slider change during song playback
   @FXML
   private def handleProgressChange(): Unit = {
-    if (mediaPlayer != null) {
+    Option(mediaPlayer).foreach { player =>
       val progress = progressSlider.getValue
-      mediaPlayer.seek(javafx.util.Duration.seconds(progress))
-      println(s"Progress set to: $progress seconds")
+      player.seek(javafx.util.Duration.seconds(progress))
+      println(s"Playback position set to: $progress seconds")
     }
   }
 
-  private def setMediaPlayer(song: Song): Unit = {
-    if (song != null) {
-      val media = new Media(song.filePath)
-      mediaPlayer = new MediaPlayer(media)
-      mediaPlayer.setVolume(volumeSlider.getValue / 100)
-
-      // Update progress slider max value based on song duration
-      progressSlider.setMax(song.duration.toDouble)
-
-      // Add event listener for progress update (optional)
-      mediaPlayer.currentTimeProperty.addListener((_, _, newValue) => {
-        progressSlider.setValue(newValue.toSeconds)
-      })
-
-      // Add event listener for when the song finishes
-      mediaPlayer.setOnEndOfMedia(() => {
-        println("Song finished, playing the next one.")
-        handleNext() // Automatically play the next song when the current one finishes
-      })
-    } else {
-      println("No song selected or mediaPlayer not initialized.")
-    }
-  }
-
-  // Handle playing the next song from the queue
-  private def handleNextSongFromQueue(): Unit = {
-    if (queueList.getItems.size() > 0) {
-      // Get the next song from the queue
-      val nextSongTitle = queueList.getItems.get(0)
-      val nextSong = currentPlaylist.songs.find(_.title == nextSongTitle)
-
-      nextSong match {
-        case Some(song) =>
-          // Play the next song
-          setMediaPlayer(song)
-          mediaPlayer.play()
-          println(s"Playing next song: ${song.title}")
-
-          // Remove the song from the queue after it starts playing
-          queueList.getItems.remove(0)
-        case None =>
-          println("No song found in the queue to play.")
-      }
-    } else {
-      println("Queue is empty, no next song to play.")
-    }
-  }
-
-  // Save the updated playlist to persistent storage (file or database)
-  private def savePlaylistToFile(playlist: Playlist): Unit = {
-    val filePath = "playlist.dat"
-    val outStream = new ObjectOutputStream(Files.newOutputStream(Paths.get(filePath)))
-    try {
-      outStream.writeObject(playlist)
-    } finally {
-      outStream.close()
-    }
-  }
-
-  // Handle adding a song to the queue
   @FXML
   private def handleAddToQueue(): Unit = {
-    val selectedSong = playlistTable.getSelectionModel.getSelectedItem
-    if (selectedSong != null) {
-      addSongToQueue(selectedSong)
-      println(s"Added song to queue: ${selectedSong.title}")
-    } else {
-      println("No song selected to add to the queue.")
+    Option(playlistTable.getSelectionModel.getSelectedItem).foreach { selectedSong =>
+      queueList.getItems.add(s"${selectedSong.title} - ${selectedSong.artist}")
+      println(s"Added to queue: ${selectedSong.title}")
     }
   }
 
-  // Helper method to add a song to the queue
-  private def addSongToQueue(song: Song): Unit = {
-    if (song != null) {
-      queueList.getItems.add(song.title)
+  private def savePlaylistToFile(playlist: Playlist): Unit = {
+    try {
+      val filePath = s"playlist_${playlist.id}.dat"
+      val outStream = new ObjectOutputStream(Files.newOutputStream(Paths.get(filePath)))
+      try {
+        outStream.writeObject(playlist)
+        println(s"Playlist saved to file: $filePath")
+      } finally {
+        outStream.close()
+      }
+    } catch {
+      case ex: Exception =>
+        println(s"Error saving playlist: ${ex.getMessage}")
     }
   }
 }

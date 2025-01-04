@@ -7,7 +7,7 @@
 <?import javafx.scene.layout.AnchorPane?>
 <?import javafx.scene.text.Font?>
 
-<AnchorPane maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity" prefHeight="400.0" prefWidth="600.0" style="-fx-background-color: #191414;" xmlns="http://javafx.com/javafx/8.0.171" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controllers.LoginController">
+<AnchorPane maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity" prefHeight="400.0" prefWidth="600.0" style="-fx-background-color: #191414;" xmlns="http://javafx.com/javafx/8.0.171" xmlns:fx="http://javafx.com/fxml/1" fx:controller="spotify.controllers.LoginController">
    <children>
       <Label layoutX="233.0" layoutY="82.0" text="Spotify Clone" textFill="#1db954">
          <font>
@@ -15,7 +15,7 @@
          </font>
       </Label>
       <TextField fx:id="usernameField" layoutX="226.0" layoutY="150.0" prefHeight="40.0" prefWidth="150.0" promptText="Username" style="-fx-background-color: #282828; -fx-text-fill: white;" />
-      <Button layoutX="226.0" layoutY="230.0" mnemonicParsing="false" onAction="#handleLogin" prefHeight="40.0" prefWidth="150.0" style="-fx-background-color: #1DB954;" text="Login" textFill="WHITE" />
+      <Button fx:id="loginButton" layoutX="226.0" layoutY="230.0" mnemonicParsing="false" onAction="#handleLogin" prefHeight="40.0" prefWidth="150.0" style="-fx-background-color: #1DB954;" text="Login" textFill="WHITE" />
       <Label fx:id="errorLabel" layoutX="226.0" layoutY="290.0" textFill="RED" visible="false" />
       <ProgressIndicator fx:id="loadingIndicator" layoutX="276.0" layoutY="320.0" prefHeight="40.0" prefWidth="40.0" visible="false" />
    </children>
