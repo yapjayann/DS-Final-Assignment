@@ -1,22 +1,28 @@
 package spotify.controllers
 
+import akka.actor.typed.eventstream.EventStream
 import akka.actor.typed.{ActorRef, ActorSystem}
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.util.Timeout
-import javafx.fxml.{FXML}
+import javafx.fxml.FXML
 import javafx.scene.control._
 import javafx.scene.control.cell.PropertyValueFactory
 import javafx.collections.{FXCollections, ObservableList}
-import spotify.models.{Playlist, User, Song}
+import spotify.models.{Playlist, Song, User}
 import spotify.actors.Messages
 import spotify.MainApp
 import javafx.scene.media.{Media, MediaPlayer}
 import javafx.application.Platform
+import akka.actor.typed.eventstream.EventStream
+import spotify.actors.Messages.PlaylistUpdated
+import javafx.application.Platform
+import akka.actor.typed.ActorRef
+
 import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.util.{Success, Failure}
+import scala.util.{Failure, Success}
 import java.nio.file.{Files, Paths}
-import java.io.{ObjectOutputStream, ObjectInputStream}
+import java.io.{ObjectInputStream, ObjectOutputStream}
 
 class PlaylistController {
   // FXML references
@@ -48,6 +54,7 @@ class PlaylistController {
   implicit val scheduler = system.scheduler
 
   def initialize(): Unit = {
+    // Existing initialization code
     titleColumn.setCellValueFactory(new PropertyValueFactory[Song, String]("title"))
     artistColumn.setCellValueFactory(new PropertyValueFactory[Song, String]("artist"))
     durationColumn.setCellValueFactory(new PropertyValueFactory[Song, String]("duration"))
@@ -59,6 +66,25 @@ class PlaylistController {
     // Add listeners for media controls
     volumeSlider.valueProperty.addListener((_, _, newValue) => handleVolumeChange())
     progressSlider.valueProperty.addListener((_, _, newValue) => handleProgressChange())
+
+    // Subscribe to playlist updates
+    system.eventStream ! EventStream.Subscribe(new ActorRef[PlaylistUpdated] {
+      def tell(msg: PlaylistUpdated): Unit = {
+        Platform.runLater(() => {
+          currentPlaylist = msg.playlist
+          populatePlaylistTable()
+          println(s"Received playlist update with ${msg.playlist.songs.size} songs")
+        })
+      }
+
+      def path: akka.actor.ActorPath = akka.actor.ActorPath.fromString("user/temp")
+
+      override def narrow[U <: PlaylistUpdated]: ActorRef[U] = ???
+
+      override def unsafeUpcast[U >: PlaylistUpdated]: ActorRef[U] = ???
+
+      override def compareTo(o: ActorRef[_]): Int = ???
+    })
 
     println("PlaylistController initialized")
   }
@@ -82,7 +108,15 @@ class PlaylistController {
     if (playlist != null) {
       this.currentPlaylist = playlist
       println(s"Current playlist set to: ${playlist.name}")
-      Platform.runLater(() => populatePlaylistTable())
+
+      // Fetch the latest state of the playlist when setting it
+      (playlistActor ? (ref => Messages.GetPlaylist(user.username, ref))).foreach {
+        case playlist: Playlist =>
+          Platform.runLater(() => {
+            this.currentPlaylist = playlist
+            populatePlaylistTable()
+          })
+      }
     } else {
       println("Warning: Attempted to set null playlist")
     }
