@@ -40,6 +40,8 @@ class PlaylistController {
   private var currentPlaylist: Playlist = _
   private var mainApp: MainApp = _
   private var mediaPlayer: MediaPlayer = _
+  // New: Added queue for songs
+  private var songQueue: scala.collection.mutable.Queue[Song] = scala.collection.mutable.Queue()
 
   // Actor system references
   private val system: ActorSystem[Messages.Command] = MainApp.actorSystem
@@ -122,15 +124,64 @@ class PlaylistController {
     }
   }
 
+  // Updated: Modified to handle queue
   @FXML
   private def handleNext(): Unit = {
-    val currentIndex = playlistTable.getSelectionModel.getSelectedIndex
-    if (currentIndex >= 0 && currentIndex < playlistTable.getItems.size() - 1) {
-      playlistTable.getSelectionModel.select(currentIndex + 1)
-      handlePlaySong()
-      println("Playing next song")
+    if (songQueue.nonEmpty) {
+      // If there are songs in the queue, play the next queued song
+      playNextQueuedSong()
     } else {
-      println("No next song available")
+      // If queue is empty, play next song in playlist
+      val currentIndex = playlistTable.getSelectionModel.getSelectedIndex
+      if (currentIndex >= 0 && currentIndex < playlistTable.getItems.size() - 1) {
+        playlistTable.getSelectionModel.select(currentIndex + 1)
+        handlePlaySong()
+        println("Playing next song from playlist")
+      } else {
+        println("No next song available")
+      }
+    }
+  }
+
+  // New: Added method to play next queued song
+  private def playNextQueuedSong(): Unit = {
+    if (songQueue.nonEmpty) {
+      val nextSong = songQueue.dequeue()
+      try {
+        // Stop current playback if any
+        Option(mediaPlayer).foreach(_.stop())
+
+        val media = new Media(nextSong.filePath)
+        mediaPlayer = new MediaPlayer(media)
+        mediaPlayer.setVolume(volumeSlider.getValue / 100)
+
+        // Update UI
+        currentSongLabel.setText(nextSong.title)
+        currentArtistLabel.setText(nextSong.artist)
+        progressSlider.setMax(nextSong.duration.toDouble)
+
+        // Update queue display
+        Platform.runLater(() => {
+          queueList.getItems.remove(0)
+        })
+
+        // Add listeners
+        mediaPlayer.currentTimeProperty.addListener((_, _, newValue) =>
+          Platform.runLater(() => progressSlider.setValue(newValue.toSeconds))
+        )
+
+        mediaPlayer.setOnEndOfMedia(() => {
+          println("Queue song finished playing")
+          Platform.runLater(() => handleNext())
+        })
+
+        mediaPlayer.play()
+        println(s"Now playing from queue: ${nextSong.title} by ${nextSong.artist}")
+      } catch {
+        case ex: Exception =>
+          println(s"Error playing queued song: ${ex.getMessage}")
+          handleNext() // Try playing next song if current one fails
+      }
     }
   }
 
@@ -155,6 +206,7 @@ class PlaylistController {
     }
   }
 
+  // Updated: Modified to handle song completion
   @FXML
   private def handlePlaySong(): Unit = {
     Option(playlistTable.getSelectionModel.getSelectedItem).foreach { selectedSong =>
@@ -178,7 +230,7 @@ class PlaylistController {
 
         mediaPlayer.setOnEndOfMedia(() => {
           println("Song finished playing")
-          handleNext()
+          Platform.runLater(() => handleNext())
         })
 
         mediaPlayer.play()
@@ -186,6 +238,7 @@ class PlaylistController {
       } catch {
         case ex: Exception =>
           println(s"Error playing song: ${ex.getMessage}")
+          handleNext() // Try playing next song if current one fails
       }
     }
   }
@@ -245,10 +298,12 @@ class PlaylistController {
     }
   }
 
+  // Updated: Modified to store full Song object in queue
   @FXML
   private def handleAddToQueue(): Unit = {
     Option(playlistTable.getSelectionModel.getSelectedItem).foreach { selectedSong =>
-      queueList.getItems.add(s"${selectedSong.title} - ${selectedSong.artist}")
+      songQueue.enqueue(selectedSong) // Add to actual song queue
+      queueList.getItems.add(s"${selectedSong.title} - ${selectedSong.artist}") // Update UI
       println(s"Added to queue: ${selectedSong.title}")
     }
   }
