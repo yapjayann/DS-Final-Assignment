@@ -235,8 +235,13 @@ class PlaylistController {
   private def handleProgressChange(): Unit = {
     Option(mediaPlayer).foreach { player =>
       val progress = progressSlider.getValue
-      player.seek(javafx.util.Duration.seconds(progress))
-      println(s"Playback position set to: $progress seconds")
+      val currentTime = player.getCurrentTime.toSeconds
+
+      // Only seek if the change in progress is significant (e.g., > 0.5 seconds)
+      if (Math.abs(progress - currentTime) > 0.5) {
+        player.seek(javafx.util.Duration.seconds(progress))
+        println(f"Playback position set to: $progress%.2f seconds")
+      }
     }
   }
 
