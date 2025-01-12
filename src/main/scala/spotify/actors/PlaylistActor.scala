@@ -11,18 +11,19 @@ case class PlaylistUpdated(playlist: Playlist) extends PlaylistEvent
 
 object PlaylistActor {
   def apply(): Behavior[Command] = Behaviors.setup { context =>
-    // Initialize the playlists map with a shared playlist and store it with both a default key and the playlist ID
+    // Initialize the shared playlist
     val sharedPlaylist = Playlist("1", "Shared Playlist")
-    var playlists: Map[String, Playlist] = Map(
-      "default" -> sharedPlaylist,
-      "1" -> sharedPlaylist  // Add the playlist with its ID as a key
-    )
+    var playlists: Map[String, Playlist] = Map("1" -> sharedPlaylist)
+
+    // Logging to confirm actor setup
+    context.log.info("PlaylistActor started and ready to handle commands.")
 
     Behaviors.receiveMessage {
-      case GetPlaylist(username, replyTo) =>
-        val playlist = playlists.getOrElse(username, playlists("default"))
-        context.log.info(s"Sending playlist '${playlist.name}' to user '$username'")
+      case GetPlaylist(_, replyTo) =>
+        // Always return the shared playlist
+        val playlist = playlists("1")
         replyTo ! playlist
+        context.log.info(s"Shared playlist sent to client. Songs count: ${playlist.songs.size}")
         Behaviors.same
 
       case AddSongToPlaylist(user, song, playlistId, replyTo) =>
@@ -30,16 +31,13 @@ object PlaylistActor {
           case Some(playlist) =>
             val updatedSong = song.copy(contributor = Some(user))
             val updatedPlaylist = playlist.addSong(updatedSong)
-            // Update both the ID-based and username-based entries if they exist
             playlists += (playlistId -> updatedPlaylist)
-            if (playlists.contains("default") && playlistId == "1") {
-              playlists += ("default" -> updatedPlaylist)
-            }
-            context.log.info(s"Song '${song.title}' added to playlist '${playlist.name}' by user '$user'")
-            context.system.eventStream.tell(EventStream.Publish(PlaylistUpdated(updatedPlaylist)))
+
+            // Publish update
+            context.system.eventStream ! EventStream.Publish(PlaylistUpdated(updatedPlaylist))
+
             replyTo ! true
           case None =>
-            context.log.error(s"Playlist '$playlistId' not found")
             replyTo ! false
         }
         Behaviors.same
@@ -48,22 +46,23 @@ object PlaylistActor {
         playlists.get(playlistId) match {
           case Some(playlist) =>
             val updatedPlaylist = playlist.removeSong(songId)
-            // Update both the ID-based and username-based entries if they exist
+            // Update the shared playlist state
             playlists += (playlistId -> updatedPlaylist)
-            if (playlists.contains("default") && playlistId == "1") {
-              playlists += ("default" -> updatedPlaylist)
-            }
-            context.log.info(s"Song '$songId' removed from playlist '$playlistId' by user '$user'")
-            context.system.eventStream.tell(EventStream.Publish(PlaylistUpdated(updatedPlaylist)))
+
+            // Log and broadcast update
+            context.log.info(s"Song with ID '$songId' removed from playlist '${playlist.name}' by user '$user'. Total songs: ${updatedPlaylist.songs.size}")
+            context.system.eventStream ! EventStream.Publish(PlaylistUpdated(updatedPlaylist))
+
             replyTo ! true
-          case _ =>
-            context.log.info(s"Failed to remove song '$songId' from playlist '$playlistId'")
+          case None =>
+            context.log.error(s"Failed to remove song. Playlist '$playlistId' not found.")
             replyTo ! false
         }
         Behaviors.same
 
       case msg =>
-        context.log.info(s"Received unknown message: $msg")
+        // Handle unknown messages gracefully
+        context.log.warn(s"Unknown message received: $msg.")
         Behaviors.same
     }
   }

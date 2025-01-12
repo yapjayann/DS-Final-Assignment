@@ -17,6 +17,9 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.{Success, Failure}
 import java.nio.file.{Files, Paths}
 import java.io.{ObjectOutputStream, ObjectInputStream}
+import akka.actor.typed.eventstream.EventStream
+import spotify.actors.PlaylistUpdated
+import akka.actor.typed.scaladsl.Behaviors
 
 class PlaylistController {
   // FXML references
@@ -43,11 +46,14 @@ class PlaylistController {
   // New: Added queue for songs
   private var songQueue: scala.collection.mutable.Queue[Song] = scala.collection.mutable.Queue()
 
+
   // Actor system references
   private val system: ActorSystem[Messages.Command] = MainApp.actorSystem
   private val playlistActor: ActorRef[Messages.Command] = MainApp.playlistActor
   implicit val timeout: Timeout = Timeout(5.seconds)
   implicit val scheduler = system.scheduler
+
+  private var subscriberActor: Option[ActorRef[PlaylistUpdated]] = None
 
   def initialize(): Unit = {
     titleColumn.setCellValueFactory(new PropertyValueFactory[Song, String]("title"))
@@ -58,11 +64,40 @@ class PlaylistController {
     volumeSlider.setValue(50.0)
     progressSlider.setValue(0.0)
 
-    // Add listeners for media controls
-    volumeSlider.valueProperty.addListener((_, _, newValue) => handleVolumeChange())
-    progressSlider.valueProperty.addListener((_, _, newValue) => handleProgressChange())
+    // Subscribe to EventStream for real-time updates
+    try {
+      val subscriber = system.systemActorOf(
+        Behaviors.receiveMessage[PlaylistUpdated] { msg =>
+          if (currentPlaylist != null && msg.playlist.id == currentPlaylist.id) {
+            Platform.runLater(() => {
+              currentPlaylist = msg.playlist
+              populatePlaylistTable() // Refresh table on updates
+            })
+          } else {
+            println(s"Update received for unrelated playlist ID: ${msg.playlist.id}")
+          }
+          Behaviors.same
+        },
+        generateSubscriberName()
+      )
 
-    println("PlaylistController initialized")
+      subscriberActor = Some(subscriber)
+
+      // Subscribe to playlist updates
+      system.eventStream ! EventStream.Subscribe(subscriber)
+
+      println("PlaylistController initialized with EventStream subscription.")
+    } catch {
+      case ex: Exception =>
+        println(s"Error initializing EventStream subscription: ${ex.getMessage}")
+    }
+  }
+
+
+  // Generate a unique subscriber name using UUID
+  private def generateSubscriberName(): String = {
+    import java.util.UUID
+    s"playlist-subscriber-${UUID.randomUUID().toString}"
   }
 
   def setMainApp(mainApp: MainApp): Unit = {
@@ -83,7 +118,7 @@ class PlaylistController {
     setCurrentUser(user)
     if (playlist != null) {
       this.currentPlaylist = playlist
-      println(s"Current playlist set to: ${playlist.name}")
+      println(s"Current playlist set to: ${playlist.name} with ID: ${playlist.id}")
       Platform.runLater(() => populatePlaylistTable())
     } else {
       println("Warning: Attempted to set null playlist")
@@ -92,10 +127,15 @@ class PlaylistController {
 
   private def populatePlaylistTable(): Unit = {
     if (currentPlaylist != null) {
-      val observableList: ObservableList[Song] = FXCollections.observableArrayList()
-      observableList.addAll(currentPlaylist.songs: _*)
-      playlistTable.setItems(observableList)
-      println(s"Populated playlist table with ${currentPlaylist.songs.size} songs")
+      Platform.runLater(() => {
+        val observableList: ObservableList[Song] = FXCollections.observableArrayList()
+        observableList.addAll(currentPlaylist.songs: _*)
+        playlistTable.setItems(observableList)
+
+        println(s"Playlist table updated with ${currentPlaylist.songs.size} songs.")
+      })
+    } else {
+      println("Warning: No playlist loaded to update the table.")
     }
   }
 

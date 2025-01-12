@@ -7,58 +7,59 @@ import com.typesafe.config.ConfigFactory
 import spotify.actors.{PlaylistActor, UserManagerActor, SongDatabaseActor}
 import spotify.actors.Messages.Command
 
-import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.duration._
+import scala.concurrent.ExecutionContext
 
 object ServerApp {
-  // Define ServiceKeys for each actor
+  // Define ServiceKeys for actors
   val UserManagerKey = ServiceKey[Command]("userManagerActor")
   val PlaylistKey = ServiceKey[Command]("playlistActor")
   val SongDatabaseKey = ServiceKey[Command]("songDatabaseActor")
 
-  private var actorSystem: Option[ActorSystem[Command]] = None
+  def main(args: Array[String]): Unit = {
+    // Define an implicit ExecutionContext
+    implicit val ec: ExecutionContext = ExecutionContext.global
 
-  def start(): ActorSystem[Command] = {
     val config = ConfigFactory.load("application.conf")
 
-    val rootBehavior: Behavior[Command] = Behaviors.setup { context =>
-      // Create the actor instances
-      val playlistActor = context.spawn(PlaylistActor(), "PlaylistActor")
-      val userManagerActor = context.spawn(UserManagerActor(), "UserManagerActor")
-      val songDatabaseActor = context.spawn(SongDatabaseActor(), "SongDatabaseActor")
+    // Start the server ActorSystem
+    val system: ActorSystem[Command] = ActorSystem(
+      Behaviors.setup[Command] { context =>
+        try {
+          // Spawn actors
+          val playlistActor = context.spawn(PlaylistActor(), "PlaylistActor")
+          val userManagerActor = context.spawn(UserManagerActor(), "UserManagerActor")
+          val songDatabaseActor = context.spawn(SongDatabaseActor(), "SongDatabaseActor")
 
-      // Register actors with the receptionist using proper ServiceKeys
-      context.system.receptionist ! Receptionist.Register(PlaylistKey, playlistActor)
-      context.system.receptionist ! Receptionist.Register(UserManagerKey, userManagerActor)
-      context.system.receptionist ! Receptionist.Register(SongDatabaseKey, songDatabaseActor)
+          // Register actors with the Receptionist
+          context.system.receptionist ! Receptionist.Register(PlaylistKey, playlistActor)
+          context.system.receptionist ! Receptionist.Register(UserManagerKey, userManagerActor)
+          context.system.receptionist ! Receptionist.Register(SongDatabaseKey, songDatabaseActor)
 
-      context.log.info("All actors initialized and registered")
-      Behaviors.empty
-    }
+          // Log successful initialization
+          context.log.info("Server initialized:")
+          context.log.info("- PlaylistActor registered with ServiceKey 'playlistActor'")
+          context.log.info("- UserManagerActor registered with ServiceKey 'userManagerActor'")
+          context.log.info("- SongDatabaseActor registered with ServiceKey 'songDatabaseActor'")
+          println("Spotify Server is running. Press ENTER to terminate.")
 
-    val system = ActorSystem[Command](rootBehavior, "SpotifySystem", config)
-    actorSystem = Some(system)
+          Behaviors.empty
+        } catch {
+          case ex: Exception =>
+            context.log.error(s"Error during server setup: ${ex.getMessage}")
+            throw ex
+        }
+      },
+      "SpotifyServer",
+      config
+    )
 
-    // Log successful startup
-    system.log.info("Spotify Server is up and running!")
-    system
-  }
-
-  def stop(): Unit = {
-    actorSystem.foreach { system =>
+    // Wait for termination signal
+    try {
+      scala.io.StdIn.readLine()
+    } finally {
+      println("Terminating Spotify Server...")
       system.terminate()
-      // Using global ExecutionContext for whenTerminated
-      system.whenTerminated.foreach(_ => println("Spotify Server has stopped."))
-    }
-  }
-
-  def main(args: Array[String]): Unit = {
-    println("Starting Spotify Server...")
-    start()
-
-    sys.addShutdownHook {
-      println("Shutting down Spotify Server...")
-      stop()
+      system.whenTerminated.map(_ => println("Spotify Server stopped."))
     }
   }
 }

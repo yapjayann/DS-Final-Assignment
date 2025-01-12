@@ -60,7 +60,7 @@ object MyConfiguration {
          |  cluster {
          |    # Hardcoding seed nodes for consistency with the server
          |    seed-nodes = [
-         |      "akka://SpotifySystem@192.168.0.3:2551"
+         |      "akka://SpotifyServer@192.168.0.3:2551"
          |    ]
          |    downing-provider-class = "akka.cluster.sbr.SplitBrainResolverProvider"
          |  }

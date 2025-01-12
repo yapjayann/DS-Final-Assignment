@@ -1,6 +1,6 @@
 package spotify
 
-import akka.actor.typed.{ActorSystem, ActorRef, Behavior}
+import akka.actor.typed.{ActorSystem, ActorRef, Behavior, Scheduler}
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.receptionist.{ServiceKey, Receptionist}
 import akka.util.Timeout
@@ -14,6 +14,7 @@ import spotify.models.{Playlist, User}
 import spotify.controllers.{LoginController, MainPageController, PlaylistController}
 import spotify.actors.{UserManagerActor, PlaylistActor, SongDatabaseActor}
 import spotify.actors.Messages.Command
+import akka.actor.typed.scaladsl.AskPattern._
 
 import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -48,9 +49,12 @@ object MainApp extends App {
 
       Behaviors.empty
     },
-    "SpotifySystem",
+    "SpotifyServer",
     config
   )
+
+  implicit val timeout: Timeout = Timeout(5.seconds)
+  implicit val scheduler: Scheduler = actorSystem.scheduler // Use implicit Scheduler from the actor system
 
   // Actor references
   @volatile private var userManagerActorRef: ActorRef[Command] = _
@@ -64,38 +68,48 @@ object MainApp extends App {
 
   // Setup actor references
   def setupActorRefs(): Future[Unit] = {
-    implicit val timeout: Timeout = 5.seconds
+    implicit val timeout: Timeout = Timeout(5.seconds)
 
-    // Create a behavior for the lookup actor
-    val lookupBehavior = Behaviors.setup[Receptionist.Listing] { context =>
-      // Subscribe to all services
+    // Define behavior to resolve actor references
+    val lookupBehavior: Behavior[Receptionist.Listing] = Behaviors.setup { context =>
+      // Subscribe to services
       context.system.receptionist ! Receptionist.Subscribe(UserManagerKey, context.self)
       context.system.receptionist ! Receptionist.Subscribe(PlaylistKey, context.self)
       context.system.receptionist ! Receptionist.Subscribe(SongDatabaseKey, context.self)
 
       Behaviors.receiveMessage {
         case UserManagerKey.Listing(listings) =>
-          listings.headOption.foreach(ref => userManagerActorRef = ref)
+          listings.headOption.foreach { ref =>
+            userManagerActorRef = ref
+            context.log.info("UserManagerActor resolved.")
+          }
           Behaviors.same
         case PlaylistKey.Listing(listings) =>
-          listings.headOption.foreach(ref => playlistActorRef = ref)
+          listings.headOption.foreach { ref =>
+            playlistActorRef = ref
+            context.log.info("PlaylistActor resolved.")
+          }
           Behaviors.same
         case SongDatabaseKey.Listing(listings) =>
-          listings.headOption.foreach(ref => songDatabaseActorRef = ref)
+          listings.headOption.foreach { ref =>
+            songDatabaseActorRef = ref
+            context.log.info("SongDatabaseActor resolved.")
+          }
           Behaviors.same
       }
     }
 
     // Spawn the lookup actor
-    val lookupActor = actorSystem.systemActorOf(lookupBehavior, "ServiceLookupActor")
+    val lookupActor: ActorRef[Receptionist.Listing] = actorSystem.systemActorOf(lookupBehavior, "ServiceLookupActor")
 
-    // Return a Future that completes when all references are set
+    // Wait for references to resolve
     Future {
       while (userManagerActorRef == null || playlistActorRef == null || songDatabaseActorRef == null) {
         Thread.sleep(100)
       }
     }
   }
+
 
   // Initialize everything before launching JavaFX
   Await.result(setupActorRefs(), 10.seconds)
@@ -106,11 +120,22 @@ object MainApp extends App {
 
 class MainApp extends Application {
   private var primaryStage: Stage = _
-  implicit val timeout: Timeout = 5.seconds
+  implicit val timeout: Timeout = Timeout(5.seconds)
 
   override def start(primaryStage: Stage): Unit = {
     this.primaryStage = primaryStage
     this.primaryStage.setTitle("Spotify Clone")
+
+    // Resolve PlaylistActor reference
+    val resolveFuture = Future {
+      while (MainApp.playlistActor == null) {
+        Thread.sleep(100)
+      }
+    }
+
+    Await.result(resolveFuture, 10.seconds)
+    println("PlaylistActor resolved successfully. Launching UI.")
+
     showLoginScreen()
   }
 
@@ -171,6 +196,9 @@ class MainApp extends Application {
   }
 
   override def stop(): Unit = {
+    println("Shutting down Spotify application...")
     MainApp.actorSystem.terminate()
+    Await.result(MainApp.actorSystem.whenTerminated, 10.seconds)
+    println("ActorSystem terminated successfully.")
   }
 }
